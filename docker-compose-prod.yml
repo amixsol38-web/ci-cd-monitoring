@@ -1,0 +1,86 @@
+version: "3.8"
+
+services:
+  backend:
+    image: ${REGISTRY_IMAGE}/backend:${IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME}
+      SPRING_DATASOURCE_USERNAME: ${DB_USER}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
+      SPRING_ELASTICSEARCH_URIS: http://search:9200
+    depends_on:
+      db:
+        condition: service_healthy
+      search:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [shop-net]
+
+  haproxy:
+    image: haproxy:2.9
+    container_name: shop-haproxy
+    restart: unless-stopped
+    ports:
+      - "80:8080"     # ⬅️ ВАЖНО: теперь сайт на 80 через haproxy
+      - "8404:8404"   # stats (можешь потом закрыть)
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks: [shop-net]
+
+  frontend:
+    image: ${REGISTRY_IMAGE}/frontend:${IMAGE_TAG}
+    container_name: shop-frontend
+    restart: unless-stopped
+    depends_on:
+      haproxy:
+        condition: service_started
+    networks: [shop-net]
+
+  db:
+    image: postgres:16.0
+    container_name: shop-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [shop-net]
+
+  search:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.22
+    container_name: shop-search
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [shop-net]
+
+networks:
+  shop-net:
+    driver: bridge
+
+volumes:
+  db-data:
+  es-data:
