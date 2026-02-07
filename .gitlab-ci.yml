@@ -1,74 +1,88 @@
-stages: [build, push, deploy]
+stages:
+  - build
+  - push
+  - deploy
 
 variables:
   DOCKER_TLS_CERTDIR: ""
-  REGISTRY_IMAGE: $CI_REGISTRY_IMAGE
-  IMAGE_TAG: $CI_COMMIT_SHORT_SHA
+  REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
 
 build_backend:
   stage: build
   image: docker:27
-  services: [docker:27-dind]
+  services:
+    - docker:27-dind
   script:
-    - docker build -t $REGISTRY_IMAGE/backend:$IMAGE_TAG ./backend
-    - docker save $REGISTRY_IMAGE/backend:$IMAGE_TAG -o backend.tar
+    - docker build -t "$REGISTRY_IMAGE/backend:$IMAGE_TAG" ./backend
+    - docker save "$REGISTRY_IMAGE/backend:$IMAGE_TAG" -o backend.tar
   artifacts:
-    paths: [backend.tar]
+    paths:
+      - backend.tar
     expire_in: 1 hour
-  only: [main]
+  only:
+    - main
 
 build_frontend:
   stage: build
   image: docker:27
-  services: [docker:27-dind]
+  services:
+    - docker:27-dind
   script:
-    - docker build -t $REGISTRY_IMAGE/frontend:$IMAGE_TAG ./frontend
-    - docker save $REGISTRY_IMAGE/frontend:$IMAGE_TAG -o frontend.tar
+    - docker build -t "$REGISTRY_IMAGE/frontend:$IMAGE_TAG" ./frontend
+    - docker save "$REGISTRY_IMAGE/frontend:$IMAGE_TAG" -o frontend.tar
   artifacts:
-    paths: [frontend.tar]
+    paths:
+      - frontend.tar
     expire_in: 1 hour
-  only: [main]
+  only:
+    - main
 
 push_images:
   stage: push
   image: docker:27
-  services: [docker:27-dind]
-  needs: ["build_backend", "build_frontend"]
+  services:
+    - docker:27-dind
+  needs:
+    - build_backend
+    - build_frontend
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker load -i backend.tar
     - docker load -i frontend.tar
-    - docker push $REGISTRY_IMAGE/backend:$IMAGE_TAG
-    - docker push $REGISTRY_IMAGE/frontend:$IMAGE_TAG
-    - docker tag $REGISTRY_IMAGE/backend:$IMAGE_TAG $REGISTRY_IMAGE/backend:latest
-    - docker tag $REGISTRY_IMAGE/frontend:$IMAGE_TAG $REGISTRY_IMAGE/frontend:latest
-    - docker push $REGISTRY_IMAGE/backend:latest
-    - docker push $REGISTRY_IMAGE/frontend:latest
-  only: [main]
+    - docker push "$REGISTRY_IMAGE/backend:$IMAGE_TAG"
+    - docker push "$REGISTRY_IMAGE/frontend:$IMAGE_TAG"
+    - docker tag "$REGISTRY_IMAGE/backend:$IMAGE_TAG" "$REGISTRY_IMAGE/backend:latest"
+    - docker tag "$REGISTRY_IMAGE/frontend:$IMAGE_TAG" "$REGISTRY_IMAGE/frontend:latest"
+    - docker push "$REGISTRY_IMAGE/backend:latest"
+    - docker push "$REGISTRY_IMAGE/frontend:latest"
+  only:
+    - main
 
 deploy_prod:
   stage: deploy
   image: alpine:3.20
   when: manual
-  only: [main]
+  only:
+    - main
   before_script:
     - apk add --no-cache openssh-client
     - mkdir -p ~/.ssh
-    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - printf "%s" "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
     - chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
   script:
     - |
-      ssh $VPS_USER@$VPS_HOST "
+      ssh "$VPS_USER@$VPS_HOST" "
         set -e
         docker login -u '$CI_REGISTRY_USER' -p '$CI_REGISTRY_PASSWORD' '$CI_REGISTRY'
         sudo mkdir -p /opt/shop
         sudo chown -R $VPS_USER:$VPS_USER /opt/shop
       "
-    - scp deploy/docker-compose.prod.yml $VPS_USER@$VPS_HOST:/opt/shop/docker-compose.yml
-    - scp haproxy/haproxy.cfg $VPS_USER@$VPS_HOST:/opt/shop/haproxy.cfg
+    - scp deploy/docker-compose.prod.yml "$VPS_USER@$VPS_HOST:/opt/shop/docker-compose.yml"
+    - scp haproxy/haproxy.cfg "$VPS_USER@$VPS_HOST:/opt/shop/haproxy.cfg"
     - |
-      ssh $VPS_USER@$VPS_HOST "
+      ssh "$VPS_USER@$VPS_HOST" "
         set -e
         cd /opt/shop
         docker compose pull
