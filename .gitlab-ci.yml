@@ -79,6 +79,7 @@ deploy_prod:
     - |
         ssh "$VPS_USER@$VPS_HOST" <<'EOF'
         set -e
+        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
         sudo mkdir -p /opt/shop
         sudo chown -R "$VPS_USER:$VPS_USER" /opt/shop
         EOF
