@@ -71,21 +71,28 @@ deploy_prod:
     - printf "%s" "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
     - chmod 600 ~/.ssh/id_rsa
     - ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
   script:
+    # 1. Подготовка папки на VPS
     - |
-      ssh "$VPS_USER@$VPS_HOST" "
-        set -e
-        docker login -u '$CI_REGISTRY_USER' -p '$CI_REGISTRY_PASSWORD' '$CI_REGISTRY'
-        sudo mkdir -p /opt/shop
-        sudo chown -R $VPS_USER:$VPS_USER /opt/shop
-      "
+      ssh "$VPS_USER@$VPS_HOST" <<'EOF'
+      set -e
+      sudo mkdir -p /opt/shop
+      sudo chown -R $VPS_USER:$VPS_USER /opt/shop
+      EOF
+
+    # 2. Копируем файлы (scp БЕЗ ssh)
     - scp docker-compose-prod.yml "$VPS_USER@$VPS_HOST:/opt/shop/docker-compose.yml"
     - scp haproxy/haproxy.cfg "$VPS_USER@$VPS_HOST:/opt/shop/haproxy.cfg"
+
+    # 3. Деплой
     - |
-      ssh "$VPS_USER@$VPS_HOST" "
-        set -e
-        cd /opt/shop
-        docker compose pull
-        docker compose up -d
-        docker image prune -f
-      "
+      ssh "$VPS_USER@$VPS_HOST" <<'EOF'
+      set -e
+      cd /opt/shop
+      docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+      docker compose pull
+      docker compose up -d
+      docker image prune -f
+      EOF
+
