@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   backend:
-    image: ${REGISTRY_IMAGE}/backend:${IMAGE_TAG}
+    image: registry.gitlab.com/amixsol1-group/1917/backend:latest
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME}
@@ -36,7 +36,7 @@ services:
     networks: [shop-net]
 
   frontend:
-    image: ${REGISTRY_IMAGE}/frontend:${IMAGE_TAG}
+    image: registry.gitlab.com/amixsol1-group/1917/frontend:latest
     container_name: shop-frontend
     restart: unless-stopped
     depends_on:
