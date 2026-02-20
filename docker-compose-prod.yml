@@ -28,14 +28,12 @@ services:
     networks: [shop-net]
 
   haproxy:
-    image: haproxy:2.9
+    image: registry.gitlab.com/amixsol1-group/1917/haproxy:latest
     container_name: shop-haproxy
     restart: unless-stopped
     ports:
       - "80:8080"
       - "8404:8404"
-    volumes:
-      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -52,7 +50,7 @@ services:
       haproxy:
         condition: service_started
     networks: [shop-net]
-    
+
   db:
     image: postgres:16.0
     container_name: shop-db

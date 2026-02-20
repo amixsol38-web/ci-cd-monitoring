@@ -38,6 +38,21 @@ build_frontend:
     paths: [frontend.tar]
     expire_in: 1 hour
 
+build_haproxy:
+  stage: build
+  image: docker:27
+  services:
+    - docker:27-dind
+  script:
+    - docker build -t "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG" ./haproxy
+    - docker save "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG" -o haproxy.tar
+  artifacts:
+    paths:
+      - haproxy.tar
+    expire_in: 1 hour
+  only:
+    - main
+
 # -------------------- PUSH --------------------
 push_images:
   stage: push
@@ -47,6 +62,7 @@ push_images:
   needs:
     - build_backend
     - build_frontend
+    - build_haproxy
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
   script:
@@ -63,7 +79,11 @@ push_images:
 
     - docker push "$REGISTRY_IMAGE/backend:latest"
     - docker push "$REGISTRY_IMAGE/frontend:latest"
-
+    
+    - docker load -i haproxy.tar
+    - docker push "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG"
+    - docker tag "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG" "$REGISTRY_IMAGE/haproxy:latest"
+    - docker push "$REGISTRY_IMAGE/haproxy:latest"
 # -------------------- SMOKE TEST (CI) --------------------
 smoke_test_compose:
   stage: test
