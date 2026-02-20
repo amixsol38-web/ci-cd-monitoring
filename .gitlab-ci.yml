@@ -129,11 +129,22 @@ deploy_staging:
     - if: '$CI_COMMIT_BRANCH == "main"'
   environment:
     name: staging
+  image: docker:27
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file /home/aleks/cicd-graf/1917/.env pull
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file /home/aleks/cicd-graf/1917/.env up -d
+
+    # создаём .env из CI Variables
+    - |
+      cat > .env <<EOF
+      DB_NAME=${DB_NAME}
+      DB_USER=${DB_USER}
+      DB_PASSWORD=${DB_PASSWORD}
+      EOF
+
+    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env pull
+    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env up -d
     - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml ps
+
 
 # -------------------- DEPLOY PROD (MANUAL) --------------------
 deploy_prod:
@@ -147,8 +158,18 @@ deploy_prod:
       allow_failure: false
   environment:
     name: production
+  image: docker:27
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file /home/aleks/cicd-graf/1917/.env pull
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file /home/aleks/cicd-graf/1917/.env up -d
+
+    # создаём .env из CI Variables
+    - |
+      cat > .env <<EOF
+      DB_NAME=${DB_NAME}
+      DB_USER=${DB_USER}
+      DB_PASSWORD=${DB_PASSWORD}
+      EOF
+
+    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env pull
+    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env up -d
     - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml ps
