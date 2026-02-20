@@ -141,9 +141,11 @@ deploy_staging:
       DB_PASSWORD=${DB_PASSWORD}
       EOF
 
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env pull
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env up -d
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml ps
+    - docker info
+    - docker ps
+    - docker compose -f docker-compose-prod.yml --env-file .env pull
+    - docker compose -f docker-compose-prod.yml --env-file .env up -d
+    - docker compose -f docker-compose-prod.yml --env-file .env ps
 
 
 # -------------------- DEPLOY PROD (MANUAL) --------------------
@@ -170,6 +172,8 @@ deploy_prod:
       DB_PASSWORD=${DB_PASSWORD}
       EOF
 
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env pull
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml --env-file .env up -d
-    - docker compose -f /home/aleks/cicd-graf/1917/docker-compose-prod.yml ps
+    - docker info
+    - docker ps
+    - docker compose -f docker-compose-prod.yml --env-file .env pull
+    - docker compose -f docker-compose-prod.yml --env-file .env up -d
+    - docker compose -f docker-compose-prod.yml --env-file .env ps
