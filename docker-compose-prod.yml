@@ -35,7 +35,7 @@ services:
       - "80:8080"
       - "8404:8404"
     volumes:
-      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -45,11 +45,14 @@ services:
     image: registry.gitlab.com/amixsol1-group/1917/frontend:latest
     container_name: shop-frontend
     restart: unless-stopped
+    environment:
+      BACKEND_HOST: haproxy
+      BACKEND_PORT: "8080"
     depends_on:
       haproxy:
         condition: service_started
     networks: [shop-net]
-
+    
   db:
     image: postgres:16.0
     container_name: shop-db
