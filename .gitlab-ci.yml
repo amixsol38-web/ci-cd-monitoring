@@ -8,6 +8,7 @@ variables:
   REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
 
+# ---------- BUILD ----------
 build_backend:
   stage: build
   image: docker:27
@@ -38,6 +39,7 @@ build_frontend:
   only:
     - main
 
+# ---------- PUSH ----------
 push_images:
   stage: push
   image: docker:27
@@ -59,32 +61,65 @@ push_images:
   only:
     - main
 
-deploy_prod:
+# ---------- DEPLOY (LOCAL IN CI) ----------
+deploy_local_compose:
   stage: deploy
-  image: alpine:3.20
-  when: manual
+  image: docker:27
+  services:
+    - docker:27-dind
+  needs:
+    - build_backend
+    - build_frontend
+  before_script:
+    - apk add --no-cache curl
+  script:
+    # грузим образы, чтобы compose НЕ пытался их билдить заново
+    - docker load -i backend.tar
+    - docker load -i frontend.tar
+
+    # создаём .env прямо в CI (учебные значения)
+    - |
+      cat > .env <<EOF
+      DB_NAME=shop
+      DB_USER=shop_user
+      DB_PASSWORD=shop_password
+      EOF
+
+    # (важно) твой compose сейчас использует image: shop_backend/shop_frontend
+    # а мы собрали $REGISTRY_IMAGE/backend и $REGISTRY_IMAGE/frontend
+    # поэтому используем override для CI
+    - |
+      cat > docker-compose.ci.yml <<EOF
+      services:
+        backend:
+          image: ${REGISTRY_IMAGE}/backend:${IMAGE_TAG}
+        frontend:
+          image: ${REGISTRY_IMAGE}/frontend:${IMAGE_TAG}
+      EOF
+
+    # проверка, что compose валиден
+    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml config
+
+    # поднимаем стек в CI
+    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml up -d
+
+    # ждём, что backend жив (actuator)
+    - |
+      echo "Waiting for backend..."
+      for i in $(seq 1 30); do
+        if docker ps --format '{{.Names}}' | grep -q backend; then
+          # пробуем health endpoint через внутреннюю сеть docker compose
+          # проще: curl из haproxy или из самого backend контейнера
+          docker exec "$(docker ps -qf name=backend)" curl -fsS http://localhost:8080/actuator/health && break || true
+        fi
+        sleep 2
+      done
+
+    # показать статусы и логи для дебага
+    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml ps
+    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml logs --no-color --tail=200
+
+  after_script:
+    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml down -v || true
   only:
     - main
-  before_script:
-    - apk add --no-cache openssh-client
-    - mkdir -p ~/.ssh
-    - printf "%s" "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-    - chmod 600 ~/.ssh/id_rsa
-    - ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts
-  script:
-    - |
-        ssh "$VPS_USER@$VPS_HOST" <<'EOF'
-        set -e
-        sudo mkdir -p /opt/shop
-        sudo chown -R "$VPS_USER:$VPS_USER" /opt/shop
-        EOF
-    - scp docker-compose-prod.yml "$VPS_USER@$VPS_HOST:/opt/shop/docker-compose.yml"
-    - scp haproxy/haproxy.cfg "$VPS_USER@$VPS_HOST:/opt/shop/haproxy.cfg"
-    - |
-        ssh "$VPS_USER@$VPS_HOST" <<'EOF'
-        set -e
-        cd /opt/shop
-        docker compose pull
-        docker compose up -d
-        docker image prune -f
-        EOF
