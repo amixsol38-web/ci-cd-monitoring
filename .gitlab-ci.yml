@@ -1,6 +1,7 @@
 stages:
   - build
   - push
+  - test
   - deploy
 
 variables:
@@ -8,38 +9,36 @@ variables:
   REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
 
-# ---------- BUILD ----------
+# -------------------- BUILD --------------------
 build_backend:
   stage: build
   image: docker:27
   services:
     - docker:27-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     - docker build -t "$REGISTRY_IMAGE/backend:$IMAGE_TAG" ./backend
     - docker save "$REGISTRY_IMAGE/backend:$IMAGE_TAG" -o backend.tar
   artifacts:
-    paths:
-      - backend.tar
+    paths: [backend.tar]
     expire_in: 1 hour
-  only:
-    - main
 
 build_frontend:
   stage: build
   image: docker:27
   services:
     - docker:27-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     - docker build -t "$REGISTRY_IMAGE/frontend:$IMAGE_TAG" ./frontend
     - docker save "$REGISTRY_IMAGE/frontend:$IMAGE_TAG" -o frontend.tar
   artifacts:
-    paths:
-      - frontend.tar
+    paths: [frontend.tar]
     expire_in: 1 hour
-  only:
-    - main
 
-# ---------- PUSH ----------
+# -------------------- PUSH --------------------
 push_images:
   stage: push
   image: docker:27
@@ -48,36 +47,42 @@ push_images:
   needs:
     - build_backend
     - build_frontend
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+
     - docker load -i backend.tar
     - docker load -i frontend.tar
+
     - docker push "$REGISTRY_IMAGE/backend:$IMAGE_TAG"
     - docker push "$REGISTRY_IMAGE/frontend:$IMAGE_TAG"
+
     - docker tag "$REGISTRY_IMAGE/backend:$IMAGE_TAG" "$REGISTRY_IMAGE/backend:latest"
     - docker tag "$REGISTRY_IMAGE/frontend:$IMAGE_TAG" "$REGISTRY_IMAGE/frontend:latest"
+
     - docker push "$REGISTRY_IMAGE/backend:latest"
     - docker push "$REGISTRY_IMAGE/frontend:latest"
-  only:
-    - main
 
-# ---------- DEPLOY (LOCAL IN CI) ----------
-deploy_local_compose:
-  stage: deploy
+# -------------------- SMOKE TEST (CI) --------------------
+smoke_test_compose:
+  stage: test
   image: docker:27
   services:
     - docker:27-dind
   needs:
     - build_backend
     - build_frontend
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
     - apk add --no-cache curl
   script:
-    # грузим образы, чтобы compose НЕ пытался их билдить заново
+    # используем локально собранные образы, compose не билдит заново
     - docker load -i backend.tar
     - docker load -i frontend.tar
 
-    # создаём .env прямо в CI (учебные значения)
+    # учебный .env (для тестового поднятия)
     - |
       cat > .env <<EOF
       DB_NAME=shop
@@ -85,9 +90,7 @@ deploy_local_compose:
       DB_PASSWORD=shop_password
       EOF
 
-    # (важно) твой compose сейчас использует image: shop_backend/shop_frontend
-    # а мы собрали $REGISTRY_IMAGE/backend и $REGISTRY_IMAGE/frontend
-    # поэтому используем override для CI
+    # override: подставляем правильные image теги
     - |
       cat > docker-compose.ci.yml <<EOF
       services:
@@ -97,29 +100,57 @@ deploy_local_compose:
           image: ${REGISTRY_IMAGE}/frontend:${IMAGE_TAG}
       EOF
 
-    # проверка, что compose валиден
     - docker compose -f docker-compose.yaml -f docker-compose.ci.yml config
-
-    # поднимаем стек в CI
     - docker compose -f docker-compose.yaml -f docker-compose.ci.yml up -d
 
-    # ждём, что backend жив (actuator)
     - |
-      echo "Waiting for backend..."
+      echo "Waiting for backend /actuator/health ..."
       for i in $(seq 1 30); do
         if docker ps --format '{{.Names}}' | grep -q backend; then
-          # пробуем health endpoint через внутреннюю сеть docker compose
-          # проще: curl из haproxy или из самого backend контейнера
-          docker exec "$(docker ps -qf name=backend)" curl -fsS http://localhost:8080/actuator/health && break || true
+          docker exec "$(docker ps -qf name=backend)" curl -fsS http://localhost:8080/actuator/health && exit 0 || true
         fi
         sleep 2
       done
-
-    # показать статусы и логи для дебага
-    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml ps
-    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml logs --no-color --tail=200
+      echo "Backend did not become healthy in time"
+      docker compose -f docker-compose.yaml -f docker-compose.ci.yml ps
+      docker compose -f docker-compose.yaml -f docker-compose.ci.yml logs --no-color --tail=200
+      exit 1
 
   after_script:
     - docker compose -f docker-compose.yaml -f docker-compose.ci.yml down -v || true
-  only:
-    - main
+
+# -------------------- DEPLOY STAGING (REAL SERVER) --------------------
+deploy_staging:
+  stage: deploy
+  tags: ["runner"]          # <-- на сервере должен быть runner с этим тегом
+  needs:
+    - push_images            # важно: деплоим то, что уже в registry
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  environment:
+    name: staging
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - cd /opt/shop           # <-- ПОМЕНЯЙ: путь на сервере где docker-compose.yaml
+    - docker compose pull
+    - docker compose up -d
+    - docker compose ps
+
+# -------------------- DEPLOY PROD (MANUAL) --------------------
+deploy_prod:
+  stage: deploy
+  tags: ["runner"]             # <-- runner на прод-сервере с тегом prod
+  needs:
+    - push_images
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      when: manual
+      allow_failure: false
+  environment:
+    name: production
+  script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - cd /opt/shop           # <-- ПОМЕНЯЙ: путь на прод-сервере
+    - docker compose pull
+    - docker compose up -d
+    - docker compose ps
