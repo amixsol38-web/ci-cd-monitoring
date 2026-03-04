@@ -116,7 +116,6 @@ services:
 
     networks:
       - shop-net
-
 networks:
   shop-net:
     driver: bridge
