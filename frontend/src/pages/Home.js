@@ -1,25 +1,44 @@
 import React, { useEffect, useState } from "react";
 import ProductList from "../components/ProductList";
-import { TextField, Container } from "@mui/material";
+import { TextField, Container, Typography } from "@mui/material";
 
 function Home() {
   const [products, setProducts] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    // Если строка поиска пустая, загружаем все продукты
-    if (!searchTerm) {
-      fetch("/api/products/")
-        .then((response) => response.json())
-        .then((data) => setProducts(data))
-        .catch((error) => console.error("Error fetching products:", error));
-    } else {
-      // Иначе ищем продукты по поисковому запросу
-      fetch(`/api/products/search?query=${searchTerm}`)
-        .then((response) => response.json())
-        .then((data) => setProducts(data))
-        .catch((error) => console.error("Error searching products:", error));
-    }
+    const controller = new AbortController();
+    const query = searchTerm.trim();
+    const url = query
+      ? `/api/products/search?query=${encodeURIComponent(query)}`
+      : "/api/products/";
+
+    const timeoutId = setTimeout(() => {
+      fetch(url, { signal: controller.signal })
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Request failed with status ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          setProducts(data);
+          setError("");
+        })
+        .catch((fetchError) => {
+          if (fetchError.name === "AbortError") {
+            return;
+          }
+          console.error("Error loading products:", fetchError);
+          setError("Couldn't load products right now.");
+        });
+    }, 300);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
   }, [searchTerm]);
 
   const handleSearchChange = (event) => {
@@ -33,8 +52,10 @@ function Home() {
         variant="outlined"
         fullWidth
         margin="normal"
+        value={searchTerm}
         onChange={handleSearchChange}
       />
+      {error ? <Typography color="error">{error}</Typography> : null}
       <ProductList products={products} />
     </Container>
   );

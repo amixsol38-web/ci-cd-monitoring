@@ -1,94 +1,189 @@
-# 1917
+# Online Shop Platform
 
+Учебный full-stack / DevOps проект интернет-магазина с контейнеризацией, CI/CD, reverse proxy, load balancing и monitoring.
 
+Проект показывает:
+- frontend на React, который отдаётся через Nginx
+- backend на Spring Boot с PostgreSQL и Elasticsearch
+- маршрутизацию и балансировку API через HAProxy
+- автоматическую сборку и публикацию Docker images в GitLab CI/CD
+- staging/prod deploy через Docker Compose
+- отдельный monitoring stack на Prometheus, Grafana, Alertmanager, cAdvisor, node_exporter и postgres_exporter
 
-## Getting started
+## Архитектура
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+```text
+Browser
+  |
+  v
+HAProxy (:80, :8404 stats)
+  |----------------------------> frontend (Nginx + React)
+  |
+  +--> backend (Spring Boot)
+         |--> PostgreSQL
+         +--> Elasticsearch
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
-
+Backend exposes: /actuator/health, /actuator/prometheus
+Monitoring stack: Prometheus + Grafana + Alertmanager + exporters
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/amixsol1-group/1917.git
-git branch -M main
-git push -uf origin main
+
+## Стек
+
+- Docker / Docker Compose
+- GitLab CI/CD
+- HAProxy
+- Nginx
+- React
+- Spring Boot
+- PostgreSQL
+- Elasticsearch
+- Flyway
+- Prometheus
+- Grafana
+- Alertmanager
+- cAdvisor
+- node_exporter
+
+## Репозиторий
+
+```text
+.
+├── backend/
+├── frontend/
+├── haproxy/
+├── monitoring/
+├── docker-compose.yaml
+├── docker-compose-prod.yml
+└── .gitlab-ci.yml
 ```
 
-## Integrate with your tools
+## Что реализовано
 
-* [Set up project integrations](https://gitlab.com/amixsol1-group/1917/-/settings/integrations)
+### Application stack
+- React frontend собирается в статические файлы и обслуживается Nginx
+- Spring Boot backend отдаёт REST API и health/metrics endpoints
+- PostgreSQL хранит товары
+- Elasticsearch используется для поиска
+- HAProxy маршрутизирует `/api` и `/actuator` в backend, остальной трафик отдаёт во frontend
 
-## Collaborate with your team
+### CI/CD
+- сборка отдельных Docker images для `backend`, `frontend`, `haproxy`
+- push image tags в GitLab Container Registry
+- smoke test через реальный входной маршрут проекта
+- отдельный deploy в `staging`
+- ручной deploy в `production`
+- deploy использует immutable image tags по commit SHA
 
-* [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### Monitoring
+- в репозитории есть отдельный monitoring stack
+- backend теперь публикует `prometheus` metrics endpoint
+- monitoring можно поднять отдельно от application stack
 
-## Test and Deploy
+## Переменные окружения
 
-Use the built-in continuous integration in GitLab.
+Скопируй шаблон:
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+```bash
+cp .env.example .env
+```
 
-***
+Базовый `.env`:
 
-# Editing this README
+```env
+DB_NAME=shop
+DB_USER=shop_user
+DB_PASSWORD=shop_password
+REGISTRY_IMAGE=registry.gitlab.com/amixsol1-group/1917
+IMAGE_TAG=latest
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Локальный запуск приложения
 
-## Suggestions for a good README
+```bash
+docker compose up -d --build
+```
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+Доступ:
+- frontend: `http://localhost/`
+- HAProxy API endpoint: `http://localhost:8080/`
+- HAProxy stats: `http://localhost:8404/`
+- backend health: `http://localhost:8080/actuator/health`
 
-## Name
-Choose a self-explaining name for your project.
+Масштабирование backend:
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+```bash
+docker compose up -d --scale backend=2
+```
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+Остановка:
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+```bash
+docker compose down
+```
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## Production-like запуск через registry images
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+```bash
+docker compose --env-file .env -f docker-compose-prod.yml up -d
+```
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+В этом режиме:
+- внешний вход идёт через `HAProxy` на `:80`
+- frontend не публикуется напрямую
+- backend, db и search работают только во внутренней сети `shop-net`
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## Monitoring запуск
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+Сначала подними application stack, чтобы появилась сеть `shop-net`.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+Опционально подготовь monitoring env:
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+```bash
+cp monitoring/.env.example monitoring/.env
+```
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+Если хочешь включить Telegram alerts, создай приватный файл `monitoring/alertmanager/alertmanager.private.yml` на основе `monitoring/alertmanager/alertmanager.private.example.yml` и поменяй в `monitoring/.env` значение `ALERTMANAGER_CONFIG_FILE`.
 
-## License
-For open source projects, say how it is licensed.
+Запуск monitoring stack:
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
-# trigger ci
+```bash
+docker compose --env-file .env --env-file monitoring/.env -f monitoring/docker-compose.yml up -d
+```
+
+Доступ:
+- Prometheus: `http://localhost:9090/`
+- Grafana: `http://localhost:3000/`
+- Alertmanager: `http://localhost:9093/`
+- cAdvisor: `http://localhost:8081/`
+- node_exporter: `http://localhost:9100/metrics`
+
+## Основные endpoints
+
+- `GET /api/products/`
+- `GET /api/products/{id}`
+- `GET /api/products/search?query=...`
+- `GET /actuator/health`
+- `GET /actuator/prometheus`
+
+## GitLab CI/CD pipeline
+
+Pipeline в [`.gitlab-ci.yml`](./.gitlab-ci.yml) делает следующее:
+- `build`: собирает Docker images
+- `push`: публикует images в GitLab Registry
+- `test`: поднимает stack и проверяет его через HAProxy
+- `deploy staging`: автоматически обновляет staging
+- `deploy prod`: вручную обновляет production
+
+## Что улучшает проект как portfolio piece
+
+- есть не только локальный docker-compose, но и production-like compose
+- deploy идёт через registry images, а не только локальный build
+- backend теперь отдаёт Prometheus-compatible metrics
+- README описывает архитектуру, запуск и pipeline
+
+## Ограничения и следующие шаги
+
+- можно добавить integration tests для backend
+- можно добавить готовые Grafana dashboards в provisioning
+- можно вынести monitoring secrets из tracked configs
+- можно улучшить Elasticsearch compatibility strategy

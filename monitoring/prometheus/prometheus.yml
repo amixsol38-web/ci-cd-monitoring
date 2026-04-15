@@ -15,13 +15,18 @@ scrape_configs:
     static_configs:
       - targets: ["prometheus:9090"]
 
+  - job_name: "backend"
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["backend:8080"]
+
   - job_name: "cadvisor"
     static_configs:
       - targets: ["cadvisor:8080"]
 
   - job_name: "node_exporter"
     static_configs:
-      - targets: ["212.20.151.13:9100"]
+      - targets: ["node_exporter:9100"]
 
   - job_name: "postgres"
     static_configs:

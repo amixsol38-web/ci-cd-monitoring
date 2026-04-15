@@ -9,7 +9,6 @@ variables:
   REGISTRY_IMAGE: "$CI_REGISTRY_IMAGE"
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
 
-# -------------------- BUILD --------------------
 build_backend:
   stage: build
   image: docker:27
@@ -43,17 +42,15 @@ build_haproxy:
   image: docker:27
   services:
     - docker:27-dind
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     - docker build -t "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG" ./haproxy
     - docker save "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG" -o haproxy.tar
   artifacts:
-    paths:
-      - haproxy.tar
+    paths: [haproxy.tar]
     expire_in: 1 hour
-  only:
-    - main
 
-# -------------------- PUSH --------------------
 push_images:
   stage: push
   image: docker:27
@@ -67,24 +64,19 @@ push_images:
     - if: '$CI_COMMIT_BRANCH == "main"'
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-
     - docker load -i backend.tar
     - docker load -i frontend.tar
-
+    - docker load -i haproxy.tar
     - docker push "$REGISTRY_IMAGE/backend:$IMAGE_TAG"
     - docker push "$REGISTRY_IMAGE/frontend:$IMAGE_TAG"
-
+    - docker push "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG"
     - docker tag "$REGISTRY_IMAGE/backend:$IMAGE_TAG" "$REGISTRY_IMAGE/backend:latest"
     - docker tag "$REGISTRY_IMAGE/frontend:$IMAGE_TAG" "$REGISTRY_IMAGE/frontend:latest"
-
+    - docker tag "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG" "$REGISTRY_IMAGE/haproxy:latest"
     - docker push "$REGISTRY_IMAGE/backend:latest"
     - docker push "$REGISTRY_IMAGE/frontend:latest"
-    
-    - docker load -i haproxy.tar
-    - docker push "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG"
-    - docker tag "$REGISTRY_IMAGE/haproxy:$IMAGE_TAG" "$REGISTRY_IMAGE/haproxy:latest"
     - docker push "$REGISTRY_IMAGE/haproxy:latest"
-# -------------------- SMOKE TEST (CI) --------------------
+
 smoke_test_compose:
   stage: test
   image: docker:27
@@ -93,24 +85,23 @@ smoke_test_compose:
   needs:
     - build_backend
     - build_frontend
+    - build_haproxy
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
   before_script:
     - apk add --no-cache curl
   script:
-    # используем локально собранные образы, compose не билдит заново
     - docker load -i backend.tar
     - docker load -i frontend.tar
-
-    # учебный .env (для тестового поднятия)
+    - docker load -i haproxy.tar
     - |
       cat > .env <<EOF
       DB_NAME=shop
       DB_USER=shop_user
       DB_PASSWORD=shop_password
+      REGISTRY_IMAGE=${REGISTRY_IMAGE}
+      IMAGE_TAG=${IMAGE_TAG}
       EOF
-
-    # override: подставляем правильные image теги
     - |
       cat > docker-compose.ci.yml <<EOF
       services:
@@ -118,28 +109,27 @@ smoke_test_compose:
           image: ${REGISTRY_IMAGE}/backend:${IMAGE_TAG}
         frontend:
           image: ${REGISTRY_IMAGE}/frontend:${IMAGE_TAG}
+        haproxy:
+          image: ${REGISTRY_IMAGE}/haproxy:${IMAGE_TAG}
+          ports:
+            - "18080:8080"
+            - "18404:8404"
       EOF
-
-    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml config
-    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml up -d
-
+    - docker compose --env-file .env -f docker-compose-prod.yml -f docker-compose.ci.yml config
+    - docker compose --env-file .env -f docker-compose-prod.yml -f docker-compose.ci.yml up -d
     - |
-      echo "Waiting for backend /actuator/health ..."
-      for i in $(seq 1 30); do
-        if docker ps --format '{{.Names}}' | grep -q backend; then
-          docker exec "$(docker ps -qf name=backend)" curl -fsS http://localhost:8080/actuator/health && exit 0 || true
+      echo "Waiting for end-to-end stack via HAProxy ..."
+      for i in $(seq 1 60); do
+        if curl -fsS http://127.0.0.1:18080/actuator/health | grep -q '"status":"UP"'; then
+          break
         fi
         sleep 2
       done
-      echo "Backend did not become healthy in time"
-      docker compose -f docker-compose.yaml -f docker-compose.ci.yml ps
-      docker compose -f docker-compose.yaml -f docker-compose.ci.yml logs --no-color --tail=200
-      exit 1
-
+      curl -fsS http://127.0.0.1:18080/ | grep -qi '<!doctype html'
+      curl -fsS http://127.0.0.1:18080/api/products/ | grep -q '\['
   after_script:
-    - docker compose -f docker-compose.yaml -f docker-compose.ci.yml down -v || true
+    - docker compose --env-file .env -f docker-compose-prod.yml -f docker-compose.ci.yml down -v || true
 
-# -------------------- DEPLOY STAGING (REAL SERVER) --------------------
 deploy_staging:
   stage: deploy
   tags: ["runner"]
@@ -152,23 +142,20 @@ deploy_staging:
   image: docker:27
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-
-    # создаём .env из CI Variables
     - |
       cat > .env <<EOF
       DB_NAME=${DB_NAME}
       DB_USER=${DB_USER}
       DB_PASSWORD=${DB_PASSWORD}
+      REGISTRY_IMAGE=${CI_REGISTRY_IMAGE}
+      IMAGE_TAG=${CI_COMMIT_SHORT_SHA}
       EOF
-
     - docker info
     - docker ps
     - docker compose -f docker-compose-prod.yml --env-file .env pull
-    - docker compose -f docker-compose-prod.yml --env-file .env up -d
+    - docker compose -f docker-compose-prod.yml --env-file .env up -d --remove-orphans
     - docker compose -f docker-compose-prod.yml --env-file .env ps
 
-
-# -------------------- DEPLOY PROD (MANUAL) --------------------
 deploy_prod:
   stage: deploy
   tags: ["runner"]
@@ -183,17 +170,16 @@ deploy_prod:
   image: docker:27
   script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-
-    # создаём .env из CI Variables
     - |
       cat > .env <<EOF
       DB_NAME=${DB_NAME}
       DB_USER=${DB_USER}
       DB_PASSWORD=${DB_PASSWORD}
+      REGISTRY_IMAGE=${CI_REGISTRY_IMAGE}
+      IMAGE_TAG=${CI_COMMIT_SHORT_SHA}
       EOF
-
     - docker info
     - docker ps
     - docker compose -f docker-compose-prod.yml --env-file .env pull
-    - docker compose -f docker-compose-prod.yml --env-file .env up -d
+    - docker compose -f docker-compose-prod.yml --env-file .env up -d --remove-orphans
     - docker compose -f docker-compose-prod.yml --env-file .env ps

@@ -1,7 +1,6 @@
 groups:
   - name: basic-alerts
     rules:
-      # 1) Любой таргет Prometheus down
       - alert: TargetDown
         expr: up == 0
         for: 1m
@@ -11,7 +10,6 @@ groups:
           summary: "Target is DOWN"
           description: "Prometheus target is not responding (job={{ $labels.job }}, instance={{ $labels.instance }})"
 
-      # 2) Высокая загрузка CPU на сервере
       - alert: HighCPUUsage
         expr: 100 - (avg by(instance)(rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100) > 80
         for: 2m
@@ -21,7 +19,6 @@ groups:
           summary: "High CPU usage"
           description: "CPU usage > 80% (instance={{ $labels.instance }})"
 
-      # 3) Мало RAM на сервере
       - alert: HighMemoryUsage
         expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
         for: 2m
@@ -31,7 +28,6 @@ groups:
           summary: "High memory usage"
           description: "RAM usage > 90% (instance={{ $labels.instance }})"
 
-      # 4) Postgres exporter сообщает что база недоступна (если метрика есть)
       - alert: PostgresDown
         expr: pg_up == 0
         for: 1m
@@ -40,3 +36,21 @@ groups:
         annotations:
           summary: "Postgres is DOWN"
           description: "Postgres exporter reports DB down (instance={{ $labels.instance }})"
+
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend is DOWN"
+          description: "Spring Boot backend is not responding to Prometheus scrape requests"
+
+      - alert: HighJvmHeapUsage
+        expr: sum by(instance)(jvm_memory_used_bytes{job="backend", area="heap"}) / clamp_min(sum by(instance)(jvm_memory_max_bytes{job="backend", area="heap"}), 1) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High JVM heap usage"
+          description: "Backend heap usage is above 85% (instance={{ $labels.instance }})"

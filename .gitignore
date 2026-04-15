@@ -1,4 +1,3 @@
-
 # Node
 frontend/node_modules/
 **/node_modules/
@@ -9,3 +8,5 @@ backend/target/
 
 # Env
 .env
+monitoring/.env
+monitoring/alertmanager/alertmanager.private.yml

@@ -1,8 +1,6 @@
-version: "3.8"
-
 services:
   backend:
-    image: registry.gitlab.com/amixsol1-group/1917/backend:latest
+    image: ${REGISTRY_IMAGE:-registry.gitlab.com/amixsol1-group/1917}/backend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${DB_NAME}
@@ -15,11 +13,10 @@ services:
       search:
         condition: service_healthy
     healthcheck:
-      # НЕ нужен wget/curl: проверяем HTTP через bash + /dev/tcp
       test:
         [
           "CMD-SHELL",
-          "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e \"GET /actuator/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q UP'"
+          'bash -c ''exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e "GET /actuator/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && cat <&3 | grep -q UP'''
         ]
       interval: 10s
       timeout: 5s
@@ -28,8 +25,7 @@ services:
     networks: [shop-net]
 
   haproxy:
-    image: registry.gitlab.com/amixsol1-group/1917/haproxy:latest
-    container_name: shop-haproxy
+    image: ${REGISTRY_IMAGE:-registry.gitlab.com/amixsol1-group/1917}/haproxy:${IMAGE_TAG:-latest}
     restart: unless-stopped
     ports:
       - "80:8080"
@@ -40,8 +36,7 @@ services:
     networks: [shop-net]
 
   frontend:
-    image: registry.gitlab.com/amixsol1-group/1917/frontend:latest
-    container_name: shop-frontend
+    image: ${REGISTRY_IMAGE:-registry.gitlab.com/amixsol1-group/1917}/frontend:${IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       BACKEND_HOST: haproxy
@@ -53,7 +48,6 @@ services:
 
   db:
     image: postgres:16.0
-    container_name: shop-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME}
@@ -71,20 +65,17 @@ services:
 
   search:
     image: docker.elastic.co/elasticsearch/elasticsearch:7.17.22
-    container_name: shop-search
     restart: unless-stopped
     environment:
       discovery.type: single-node
-      # для твоей RAM лучше поменьше
       ES_JAVA_OPTS: "-Xms256m -Xmx256m"
     volumes:
       - es-data:/usr/share/elasticsearch/data
     healthcheck:
-      # НЕ нужен wget/curl: проверяем HTTP через bash + /dev/tcp
       test:
         [
           "CMD-SHELL",
-          "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9200 && echo -e \"GET /_cluster/health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep -qE \"\\\"status\\\":\\\"(green|yellow)\\\"\"'"
+          'bash -c ''exec 3<>/dev/tcp/127.0.0.1/9200 && echo -e "GET /_cluster/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 && cat <&3 | grep -qE "\"status\":\"(green|yellow)\""'''
         ]
       interval: 10s
       timeout: 5s
@@ -95,6 +86,7 @@ services:
 networks:
   shop-net:
     driver: bridge
+    name: shop-net
 
 volumes:
   db-data:

@@ -3,6 +3,9 @@ import { Card, CardMedia, CardContent, Typography, CardActionArea } from "@mui/m
 import { Link } from "react-router-dom";
 
 function ProductCard({ product }) {
+  const numericPrice = Number(product.price);
+  const formattedPrice = Number.isNaN(numericPrice) ? product.price : numericPrice.toFixed(2);
+
   return (
     <Card sx={{ width: 300, margin: "1rem" }}>
       <CardActionArea component={Link} to={`/product/${product.id}`}>
@@ -11,7 +14,7 @@ function ProductCard({ product }) {
           <Typography gutterBottom variant="h5">
             {product.name}
           </Typography>
-          <Typography variant="h6">{product.price}</Typography>
+          <Typography variant="h6">${formattedPrice}</Typography>
         </CardContent>
       </CardActionArea>
     </Card>
