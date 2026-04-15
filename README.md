@@ -157,6 +157,51 @@ docker compose --env-file .env --env-file monitoring/.env -f monitoring/docker-c
 - cAdvisor: `http://localhost:8081/`
 - node_exporter: `http://localhost:9100/metrics`
 
+## Как проверить, что monitoring работает
+
+После запуска monitoring stack проще всего проверить его по трём вещам:
+- в `Prometheus` на странице `Targets` все основные jobs должны быть в статусе `UP`
+- в `Grafana` должны открываться метрики из `Prometheus`
+- в `Alertmanager` должны быть видны активные или готовые к отправке алерты
+
+Если хочется быстро убедиться руками:
+
+```bash
+docker compose ps
+docker compose -f monitoring/docker-compose.yml ps
+curl http://localhost:8080/actuator/prometheus
+```
+
+Если `backend` отвечает на `/actuator/prometheus`, а `Prometheus` видит свои targets, значит сбор метрик уже работает нормально.
+
+## Скриншоты monitoring
+
+Ниже несколько скринов из запущенного monitoring stack. Они показывают, что метрики реально собираются, контейнеры видны в системе мониторинга, а алерты тоже отрабатывают.
+
+### Prometheus
+
+На этом экране видно, что `Prometheus` поднят и видит свои targets. Это базовая проверка: если здесь всё в статусе `UP`, значит мониторинг уже получает метрики от сервисов.
+
+![Prometheus targets](<docs/prometheus.png>)
+
+### Grafana + cAdvisor
+
+Здесь показана визуализация метрик контейнеров в `Grafana`. Через `cAdvisor` можно смотреть нагрузку и состояние контейнеров, а сама `Grafana` удобна тем, что собирает всё в понятные графики, которые уже проще анализировать, чем сырые метрики.
+
+![Grafana with cAdvisor metrics](<docs/grafana cadvisor.png>)
+
+### Node Exporter
+
+Этот экран показывает метрики хоста через `node_exporter`: нагрузку, память, состояние системы и другие системные показатели. Такой уровень мониторинга полезен, чтобы видеть не только приложение, но и состояние самой машины, на которой оно работает.
+
+![Node Exporter metrics](<docs/node exporter.png>)
+
+### Alertmanager
+
+На этом скрине видно `Alertmanager`, который отвечает за обработку алертов. То есть monitoring в проекте не просто собирает цифры, а ещё умеет реагировать на проблемы и готов отправлять уведомления, если какой-то сервис перестанет отвечать или выйдет за пороги.
+
+![Alertmanager alerts](<docs/alertmanager.png>)
+
 ## Основные endpoints
 
 - `GET /api/products/`
