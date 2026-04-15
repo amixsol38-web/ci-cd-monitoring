@@ -1,14 +1,12 @@
 # Online Shop Platform
 
-Учебный full-stack / DevOps проект интернет-магазина с контейнеризацией, CI/CD, reverse proxy, load balancing и monitoring.
+DevOps-oriented full-stack project demonstrating:
+- containerized application stack with Docker Compose
+- CI/CD pipeline in GitLab
+- reverse proxy and routing via HAProxy
+- monitoring with Prometheus, Grafana and Alertmanager
 
-Проект показывает:
-- frontend на React, который отдаётся через Nginx
-- backend на Spring Boot с PostgreSQL и Elasticsearch
-- маршрутизацию и балансировку API через HAProxy
-- автоматическую сборку и публикацию Docker images в GitLab CI/CD
-- staging/prod deploy через Docker Compose
-- отдельный monitoring stack на Prometheus, Grafana, Alertmanager, cAdvisor, node_exporter и postgres_exporter
+Основной акцент в проекте сделан на инфраструктурную часть: контейнеризацию, routing, доставку изменений и мониторинг. Само приложение используется как удобный demo workload для этой инфраструктуры.
 
 ## Архитектура
 
@@ -21,28 +19,28 @@ HAProxy (:80, :8404 stats)
   |
   +--> backend (Spring Boot)
          |--> PostgreSQL
-         +--> Elasticsearch
+         +--> search service
 
 Backend exposes: /actuator/health, /actuator/prometheus
 Monitoring stack: Prometheus + Grafana + Alertmanager + exporters
 ```
 
-## Стек
+## Основной стек
 
 - Docker / Docker Compose
 - GitLab CI/CD
 - HAProxy
-- Nginx
-- React
-- Spring Boot
-- PostgreSQL
-- Elasticsearch
-- Flyway
 - Prometheus
 - Grafana
 - Alertmanager
 - cAdvisor
 - node_exporter
+
+Application services in the demo:
+- Nginx + React
+- Spring Boot
+- PostgreSQL
+- Elasticsearch
 
 ## Репозиторий
 
@@ -59,25 +57,24 @@ Monitoring stack: Prometheus + Grafana + Alertmanager + exporters
 
 ## Что реализовано
 
-### Application stack
-- React frontend собирается в статические файлы и обслуживается Nginx
-- Spring Boot backend отдаёт REST API и health/metrics endpoints
-- PostgreSQL хранит товары
-- Elasticsearch используется для поиска
-- HAProxy маршрутизирует `/api` и `/actuator` в backend, остальной трафик отдаёт во frontend
+### Infrastructure focus
+- приложение разворачивается через Docker Compose
+- весь внешний трафик идёт через `HAProxy`
+- backend отдаёт health и metrics endpoints
+- monitoring stack поднимается отдельно от application stack
 
 ### CI/CD
-- сборка отдельных Docker images для `backend`, `frontend`, `haproxy`
-- push image tags в GitLab Container Registry
-- smoke test через реальный входной маршрут проекта
-- отдельный deploy в `staging`
-- ручной deploy в `production`
+- pipeline собирает отдельные Docker images для `backend`, `frontend`, `haproxy`
+- образы публикуются в GitLab Container Registry
+- есть smoke test через реальный входной маршрут проекта
 - deploy использует immutable image tags по commit SHA
+- staging deploy автоматический, production deploy ручной
 
 ### Monitoring
-- в репозитории есть отдельный monitoring stack
-- backend теперь публикует `prometheus` metrics endpoint
-- monitoring можно поднять отдельно от application stack
+- `Prometheus` собирает метрики приложения, контейнеров и хоста
+- `Grafana` используется для визуализации метрик
+- `Alertmanager` обрабатывает алерты
+- в рабочей конфигурации алерты отправляются в Telegram через приватный конфиг
 
 ## Переменные окружения
 
@@ -94,7 +91,7 @@ DB_NAME=shop
 DB_USER=shop_user
 DB_PASSWORD=shop_password
 REGISTRY_IMAGE=registry.gitlab.com/amixsol1-group/1917
-IMAGE_TAG=latest
+IMAGE_TAG=replace-with-commit-sha
 ```
 
 ## Локальный запуск приложения
@@ -123,6 +120,8 @@ docker compose down
 
 ## Production-like запуск через registry images
 
+Для этого режима лучше использовать immutable tag из CI/CD, а не `latest`.
+
 ```bash
 docker compose --env-file .env -f docker-compose-prod.yml up -d
 ```
@@ -142,7 +141,7 @@ docker compose --env-file .env -f docker-compose-prod.yml up -d
 cp monitoring/.env.example monitoring/.env
 ```
 
-Если хочешь включить Telegram alerts, создай приватный файл `monitoring/alertmanager/alertmanager.private.yml` на основе `monitoring/alertmanager/alertmanager.private.example.yml` и поменяй в `monitoring/.env` значение `ALERTMANAGER_CONFIG_FILE`.
+Для Telegram alerts используется приватный файл `monitoring/alertmanager/alertmanager.private.yml`. Он не хранится в git и подключается через `monitoring/.env`.
 
 Запуск monitoring stack:
 
@@ -159,10 +158,10 @@ docker compose --env-file .env --env-file monitoring/.env -f monitoring/docker-c
 
 ## Как проверить, что monitoring работает
 
-После запуска monitoring stack проще всего проверить его по трём вещам:
-- в `Prometheus` на странице `Targets` все основные jobs должны быть в статусе `UP`
-- в `Grafana` должны открываться метрики из `Prometheus`
-- в `Alertmanager` должны быть видны активные или готовые к отправке алерты
+После запуска monitoring stack достаточно проверить три вещи:
+- в `Prometheus` на странице `Targets` основные jobs должны быть в статусе `UP`
+- в `Grafana` должен открываться datasource `Prometheus` и графики по метрикам
+- в `Alertmanager` должны быть видны правила и алерты
 
 Если хочется быстро убедиться руками:
 
@@ -172,41 +171,39 @@ docker compose -f monitoring/docker-compose.yml ps
 curl http://localhost:8080/actuator/prometheus
 ```
 
-Если `backend` отвечает на `/actuator/prometheus`, а `Prometheus` видит свои targets, значит сбор метрик уже работает нормально.
+Если `backend` отвечает на `/actuator/prometheus`, а `Prometheus` видит свои targets, значит мониторинг уже собирает метрики нормально.
 
 ## Скриншоты monitoring
 
-Ниже несколько скринов из запущенного monitoring stack. Они показывают, что метрики реально собираются, контейнеры видны в системе мониторинга, а алерты тоже отрабатывают.
+Ниже несколько скриншотов из запущенного monitoring stack. Они показывают, что метрики реально собираются, визуализируются и могут использоваться для алертов.
 
 ### Prometheus
 
-На этом экране видно, что `Prometheus` поднят и видит свои targets. Это базовая проверка: если здесь всё в статусе `UP`, значит мониторинг уже получает метрики от сервисов.
+На этом экране видно, что `Prometheus` поднят и видит свои targets. Если здесь сервисы в статусе `UP`, значит сбор метрик работает корректно.
 
 ![Prometheus targets](<docs/prometheus.png>)
 
 ### Grafana + cAdvisor
 
-Здесь показана визуализация метрик контейнеров в `Grafana`. Через `cAdvisor` можно смотреть нагрузку и состояние контейнеров, а сама `Grafana` удобна тем, что собирает всё в понятные графики, которые уже проще анализировать, чем сырые метрики.
+Здесь показана визуализация метрик контейнеров в `Grafana`. Через `cAdvisor` можно смотреть нагрузку и состояние контейнеров в более удобном виде, чем через сырые метрики.
 
 ![Grafana with cAdvisor metrics](<docs/grafana cadvisor.png>)
 
 ### Node Exporter
 
-Этот экран показывает метрики хоста через `node_exporter`: нагрузку, память, состояние системы и другие системные показатели. Такой уровень мониторинга полезен, чтобы видеть не только приложение, но и состояние самой машины, на которой оно работает.
+Этот экран показывает метрики хоста через `node_exporter`: нагрузку, память и общее состояние системы. Это помогает видеть не только приложение, но и сам хост.
 
 ![Node Exporter metrics](<docs/node exporter.png>)
 
 ### Alertmanager
 
-На этом скрине видно `Alertmanager`, который отвечает за обработку алертов. То есть monitoring в проекте не просто собирает цифры, а ещё умеет реагировать на проблемы и готов отправлять уведомления, если какой-то сервис перестанет отвечать или выйдет за пороги.
+На этом скрине видно `Alertmanager`, который отвечает за обработку алертов. В моём локальном запуске он отправляет уведомления в Telegram, поэтому monitoring здесь не только собирает метрики, но и умеет сообщать о проблемах.
 
 ![Alertmanager alerts](<docs/alertmanager.png>)
 
 ## Основные endpoints
 
 - `GET /api/products/`
-- `GET /api/products/{id}`
-- `GET /api/products/search?query=...`
 - `GET /actuator/health`
 - `GET /actuator/prometheus`
 

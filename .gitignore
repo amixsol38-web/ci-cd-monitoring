@@ -8,5 +8,6 @@ backend/target/
 
 # Env
 .env
+.codex
 monitoring/.env
 monitoring/alertmanager/alertmanager.private.yml
